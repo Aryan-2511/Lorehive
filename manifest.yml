@@ -1,0 +1,236 @@
+app:
+  # Run `forge register` to replace this id with your own app id.
+  id: ari:cloud:ecosystem::app/00000000-0000-0000-0000-000000000000
+  runtime:
+    name: nodejs22.x
+
+modules:
+  # ---------- Console ----------
+  # global:fullPage is Preview; jira:adminPage is the GA fallback (risk #5).
+  jira:adminPage:
+    - key: lorehive-console
+      title: Lorehive
+      resource: console
+      resolver:
+        function: console-resolver
+  # ---------- Harvest ----------
+  webtrigger:
+    - key: github-webhook
+      function: github-webhook
+      response:
+        type: dynamic
+  trigger:
+    - key: jira-issue-updated
+      function: jira-issue-updated
+      events:
+        - avi:jira:updated:issue
+    - key: jira-issue-created
+      function: jira-issue-created
+      events:
+        - avi:jira:created:issue
+  consumer:
+    - key: harvest-consumer
+      queue: lorehive-harvest
+      function: harvest-consumer
+    - key: propagate-consumer
+      queue: lorehive-propagate
+      function: propagate-consumer
+  scheduledTrigger:
+    - key: distil-and-measure
+      function: scheduled-distil
+      interval: hour
+  # ---------- Guard ----------
+  bitbucket:mergeCheck:
+    - key: lorehive-guard
+      name: Lorehive guard
+      description: Blocks unmanaged edits to Lorehive lesson blocks and code that breaks a compiled lesson.
+      function: merge-check
+      triggers:
+        - on-code-pushed
+        - on-merge
+  # ---------- Delivery: MCP + Rovo ----------
+  rovo:mcp:
+    - key: lorehive-mcp
+      name: Lorehive
+      tools:
+        - lessons-for
+        - report-outcome
+  rovo:agent:
+    - key: lorehive-librarian
+      name: Lorehive Librarian
+      description: Explains what your organisation's agents have learned, why, and from which evidence.
+      prompt: |
+        You are the Lorehive Librarian. Lorehive is a shared memory that lets every agent in this
+        organisation learn from corrections people made to agent work (reverts, fix-ups, reopened
+        tickets, accepted review findings).
+
+        When asked why agents do something, find the lesson with explain-lesson and answer with the
+        evidence chain: who corrected what, where, and when. Say which evidence counted and which did
+        not, and why. Always say when data is labelled "seeded" (demo data).
+
+        Never invent lessons or evidence. You cannot veto a lesson yourself; if a user wants a lesson
+        removed, use propose-veto and tell them an admin will review it.
+      conversationStarters:
+        - Why did our agents start using @org/http?
+        - Which lessons were promoted this week?
+        - Show me evidence that was rejected as possible poisoning
+      actions:
+        - list-lessons
+        - explain-lesson
+        - propose-veto
+        - lessons-for
+  action:
+    - key: lessons-for
+      name: lessons_for
+      function: lessons-for
+      actionVerb: GET
+      description: |
+        Get the organisation's lessons for a task before you start coding or answering. Returns short
+        rules learned from people correcting agents, with evidence links.
+      inputs:
+        task:
+          title: Task
+          type: string
+          required: true
+          description: What you are about to do, in one or two sentences.
+        repo:
+          title: Repository
+          type: string
+          required: false
+          description: Repository as "github:owner/name" or "bitbucket:workspace/name".
+        project:
+          title: Jira project
+          type: string
+          required: false
+          description: Jira project key, if the task belongs to one.
+        languages:
+          title: Languages
+          type: string
+          required: false
+          description: Comma-separated languages, e.g. "typescript,python".
+    - key: report-outcome
+      name: report_outcome
+      function: report-outcome
+      actionVerb: CREATE
+      description: |
+        Report whether lessons from lessons_for helped. Used to measure lessons; never used to create them.
+      inputs:
+        lessonIds:
+          title: Lesson ids
+          type: string
+          required: true
+          description: Comma-separated lesson ids, e.g. "L-1a2b3c4d".
+        outcome:
+          title: Outcome
+          type: string
+          required: true
+          description: '"helped" or "failed".'
+        repo:
+          title: Repository
+          type: string
+          required: false
+          description: Repository the work happened in.
+    - key: list-lessons
+      name: List lessons
+      function: list-lessons
+      actionVerb: GET
+      description: List Lorehive lessons, optionally filtered by text or status (candidate, promoted, retired, superseded, vetoed).
+      inputs:
+        query:
+          title: Query
+          type: string
+          required: false
+          description: Text to search for.
+        status:
+          title: Status
+          type: string
+          required: false
+          description: Lesson status filter.
+    - key: explain-lesson
+      name: Explain lesson
+      function: explain-lesson
+      actionVerb: GET
+      description: Explain why a lesson exists, with its full evidence chain and which evidence counted.
+      inputs:
+        lessonId:
+          title: Lesson id
+          type: string
+          required: false
+          description: Lesson id, if known.
+        query:
+          title: Query
+          type: string
+          required: false
+          description: Words from the lesson, e.g. "@org/http".
+    - key: propose-veto
+      name: Propose veto
+      function: propose-veto
+      actionVerb: CREATE
+      description: Propose that an admin vetoes a lesson. Does not remove it.
+      inputs:
+        lessonId:
+          title: Lesson id
+          type: string
+          required: true
+          description: The lesson to veto.
+        reason:
+          title: Reason
+          type: string
+          required: true
+          description: Why it should be vetoed.
+  # ---------- Platform ----------
+  llm:
+    - key: lorehive-llm
+      model:
+        - claude
+  sql:
+    - key: main
+      engine: mysql
+  function:
+    - key: console-resolver
+      handler: index.consoleResolver
+    - key: github-webhook
+      handler: index.githubWebhook
+    - key: jira-issue-updated
+      handler: index.onIssueUpdated
+    - key: jira-issue-created
+      handler: index.onIssueCreated
+    - key: harvest-consumer
+      handler: index.harvestConsumer
+      timeoutSeconds: 900
+    - key: propagate-consumer
+      handler: index.propagateConsumer
+      timeoutSeconds: 900
+    - key: scheduled-distil
+      handler: index.scheduledDistil
+      timeoutSeconds: 900
+    - key: merge-check
+      handler: index.mergeCheck
+    - key: lessons-for
+      handler: index.lessonsForAction
+    - key: report-outcome
+      handler: index.reportOutcomeAction
+    - key: list-lessons
+      handler: index.listLessonsAction
+    - key: explain-lesson
+      handler: index.explainLessonAction
+    - key: propose-veto
+      handler: index.proposeVetoAction
+
+resources:
+  - key: console
+    path: static/console/build
+
+permissions:
+  scopes:
+    - read:jira-work
+    - read:jira-user
+    - read:pullrequest:bitbucket
+    - read:repository:bitbucket
+  external:
+    fetch:
+      backend:
+        - api.github.com
+  content:
+    styles:
+      - unsafe-inline

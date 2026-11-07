@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lorehive</title>
+    <link rel="stylesheet" href="./console.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <span class="mark">◆</span>
+        <div>
+          <h1>Lorehive</h1>
+          <p class="tag">Agents forget. Your organisation shouldn't.</p>
+        </div>
+      </div>
+      <div class="badges">
+        <span class="badge">Runs on Atlassian-hosted models</span>
+        <span class="badge" id="ledger-badge">Ledger …</span>
+        <span class="badge seeded hidden" id="demo-badge">Demo mode: seeded data</span>
+      </div>
+    </header>
+
+    <section id="first-run" class="card hidden">
+      <h2>See Lorehive learn in under 3 minutes</h2>
+      <p>
+        Demo mode loads a seeded fleet (5 agents, 6 repos, 2 Jira projects) and plays the story step by
+        step: corrections arrive as evidence, a quorum promotes a lesson, poisoning attempts are rejected.
+        Nothing to connect.
+      </p>
+      <button class="primary" id="start-demo">Start demo</button>
+    </section>
+
+    <nav class="tabs" id="tabs">
+      <button data-tab="fleet" class="active">Fleet</button>
+      <button data-tab="lessons">Lessons</button>
+      <button data-tab="feed">Live feed</button>
+      <button data-tab="delivery">Delivery</button>
+      <button data-tab="demo">Demo</button>
+    </nav>
+
+    <main>
+      <section data-panel="fleet" class="panel"></section>
+      <section data-panel="lessons" class="panel hidden"></section>
+      <section data-panel="feed" class="panel hidden"></section>
+      <section data-panel="delivery" class="panel hidden"></section>
+      <section data-panel="demo" class="panel hidden"></section>
+    </main>
+    <script src="./console.js"></script>
+  </body>
+</html>
