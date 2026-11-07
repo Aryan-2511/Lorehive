@@ -31,7 +31,7 @@ Every decision goes into an append-only, hash-chained ledger ([`src/core/ledger.
 | `src/core/` | Pure domain logic with no Forge imports: harvest, topic, promote, distil, compile, guard, retrieve, efficacy, ledger, engine |
 | `src/store/` | `Store` port, `MemoryStore` (tests), `SqlStore` (Forge SQL plus migrations) |
 | `src/adapters/github.ts` | Webhook HMAC, app JWT, patch parsing, GitHub payloads → correction signals |
-| `src/forge/` | Forge handlers: web trigger, queue consumers, Jira triggers, Bitbucket merge check, Rovo actions, console resolver, Forge LLM writer and reranker |
+| `src/forge/` | Forge handlers: web trigger, queue consumers, Jira triggers, Rovo actions, console resolver, Forge LLM writer and reranker. `bitbucket-handlers.ts` holds the merge check for the separate Bitbucket app (not yet wired). |
 | `src/demo/` | Seeded demo fleet and the scripted story from the video |
 | `static/console/` | Console Custom UI (vanilla TS bundled by esbuild) |
 | `manifest.yml` | All Forge modules |
@@ -82,5 +82,8 @@ Open **Jira settings → Apps → Lorehive** and click **Start demo**. Nothing n
 Quorum raises the bar for poisoning but doesn't remove the risk. Lorehive is not "immune to poisoning".
 
 ## Status
+
+Forge doesn't allow Bitbucket (workspace) scopes and Jira (site) scopes in one app, so the Bitbucket merge check has to ship as a second app. Until then, GitHub is the code surface (fallback for risk #2 in the plan).
+
 
 Phase: spikes (Nov 7–14). See the build plan for the week-1 go/no-go checks.

@@ -1,6 +1,5 @@
 app:
-  # Run `forge register` to replace this id with your own app id.
-  id: ari:cloud:ecosystem::app/00000000-0000-0000-0000-000000000000
+  id: ari:cloud:ecosystem::app/78bf3d99-0084-4674-8a3c-2e3b85588532
   runtime:
     name: nodejs22.x
 
@@ -12,42 +11,35 @@ modules:
       title: Lorehive
       resource: console
       resolver:
-        function: console-resolver
+        function: console-resolver-fn
   # ---------- Harvest ----------
   webtrigger:
     - key: github-webhook
-      function: github-webhook
+      function: github-webhook-fn
       response:
         type: dynamic
   trigger:
     - key: jira-issue-updated
-      function: jira-issue-updated
+      function: jira-issue-updated-fn
       events:
         - avi:jira:updated:issue
     - key: jira-issue-created
-      function: jira-issue-created
+      function: jira-issue-created-fn
       events:
         - avi:jira:created:issue
   consumer:
     - key: harvest-consumer
       queue: lorehive-harvest
-      function: harvest-consumer
+      function: harvest-consumer-fn
     - key: propagate-consumer
       queue: lorehive-propagate
-      function: propagate-consumer
+      function: propagate-consumer-fn
   scheduledTrigger:
     - key: distil-and-measure
-      function: scheduled-distil
+      function: scheduled-distil-fn
       interval: hour
-  # ---------- Guard ----------
-  bitbucket:mergeCheck:
-    - key: lorehive-guard
-      name: Lorehive guard
-      description: Blocks unmanaged edits to Lorehive lesson blocks and code that breaks a compiled lesson.
-      function: merge-check
-      triggers:
-        - on-code-pushed
-        - on-merge
+  # Bitbucket guard ships as a separate app (apps/bitbucket): Forge does not allow
+  # Bitbucket workspace scopes and Jira site scopes in one app.
   # ---------- Delivery: MCP + Rovo ----------
   rovo:mcp:
     - key: lorehive-mcp
@@ -58,7 +50,8 @@ modules:
   rovo:agent:
     - key: lorehive-librarian
       name: Lorehive Librarian
-      description: Explains what your organisation's agents have learned, why, and from which evidence.
+      description: Explains what your organisation's agents have learned, why, and
+        from which evidence.
       prompt: |
         You are the Lorehive Librarian. Lorehive is a shared memory that lets every agent in this
         organisation learn from corrections people made to agent work (reverts, fix-ups, reopened
@@ -82,7 +75,7 @@ modules:
   action:
     - key: lessons-for
       name: lessons_for
-      function: lessons-for
+      function: lessons-for-fn
       actionVerb: GET
       description: |
         Get the organisation's lessons for a task before you start coding or answering. Returns short
@@ -110,7 +103,7 @@ modules:
           description: Comma-separated languages, e.g. "typescript,python".
     - key: report-outcome
       name: report_outcome
-      function: report-outcome
+      function: report-outcome-fn
       actionVerb: CREATE
       description: |
         Report whether lessons from lessons_for helped. Used to measure lessons; never used to create them.
@@ -132,9 +125,10 @@ modules:
           description: Repository the work happened in.
     - key: list-lessons
       name: List lessons
-      function: list-lessons
+      function: list-lessons-fn
       actionVerb: GET
-      description: List Lorehive lessons, optionally filtered by text or status (candidate, promoted, retired, superseded, vetoed).
+      description: List Lorehive lessons, optionally filtered by text or status
+        (candidate, promoted, retired, superseded, vetoed).
       inputs:
         query:
           title: Query
@@ -148,9 +142,10 @@ modules:
           description: Lesson status filter.
     - key: explain-lesson
       name: Explain lesson
-      function: explain-lesson
+      function: explain-lesson-fn
       actionVerb: GET
-      description: Explain why a lesson exists, with its full evidence chain and which evidence counted.
+      description: Explain why a lesson exists, with its full evidence chain and which
+        evidence counted.
       inputs:
         lessonId:
           title: Lesson id
@@ -164,7 +159,7 @@ modules:
           description: Words from the lesson, e.g. "@org/http".
     - key: propose-veto
       name: Propose veto
-      function: propose-veto
+      function: propose-veto-fn
       actionVerb: CREATE
       description: Propose that an admin vetoes a lesson. Does not remove it.
       inputs:
@@ -187,34 +182,32 @@ modules:
     - key: main
       engine: mysql
   function:
-    - key: console-resolver
+    - key: console-resolver-fn
       handler: index.consoleResolver
-    - key: github-webhook
+    - key: github-webhook-fn
       handler: index.githubWebhook
-    - key: jira-issue-updated
+    - key: jira-issue-updated-fn
       handler: index.onIssueUpdated
-    - key: jira-issue-created
+    - key: jira-issue-created-fn
       handler: index.onIssueCreated
-    - key: harvest-consumer
+    - key: harvest-consumer-fn
       handler: index.harvestConsumer
       timeoutSeconds: 900
-    - key: propagate-consumer
+    - key: propagate-consumer-fn
       handler: index.propagateConsumer
       timeoutSeconds: 900
-    - key: scheduled-distil
+    - key: scheduled-distil-fn
       handler: index.scheduledDistil
       timeoutSeconds: 900
-    - key: merge-check
-      handler: index.mergeCheck
-    - key: lessons-for
+    - key: lessons-for-fn
       handler: index.lessonsForAction
-    - key: report-outcome
+    - key: report-outcome-fn
       handler: index.reportOutcomeAction
-    - key: list-lessons
+    - key: list-lessons-fn
       handler: index.listLessonsAction
-    - key: explain-lesson
+    - key: explain-lesson-fn
       handler: index.explainLessonAction
-    - key: propose-veto
+    - key: propose-veto-fn
       handler: index.proposeVetoAction
 
 resources:
@@ -225,12 +218,10 @@ permissions:
   scopes:
     - read:jira-work
     - read:jira-user
-    - read:pullrequest:bitbucket
-    - read:repository:bitbucket
   external:
     fetch:
       backend:
-        - api.github.com
+        - address: api.github.com
   content:
     styles:
       - unsafe-inline

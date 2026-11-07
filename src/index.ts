@@ -2,7 +2,6 @@
 export { githubWebhook } from './forge/github-handlers';
 export { harvestConsumer, propagateConsumer, scheduledDistil } from './forge/consumers';
 export { onIssueCreated, onIssueUpdated } from './forge/jira-handlers';
-export { mergeCheck } from './forge/bitbucket-handlers';
 export {
   explainLessonAction,
   lessonsForAction,
