@@ -79,6 +79,9 @@ async function ensure() {
   if (!migrated) await migrate();
 }
 
+/** Forge SQL rejects a bound parameter in LIMIT, so inline a clamped integer. */
+const lim = (n: number) => Math.max(1, Math.min(1000, Math.floor(Number(n) || 200)));
+
 const parse = <T>(rows: Array<{ doc: string }>): T[] => rows.map((r) => JSON.parse(r.doc) as T);
 
 export class SqlStore implements Store {
@@ -111,7 +114,7 @@ export class SqlStore implements Store {
 
   async listEvidence(limit = 200) {
     await ensure();
-    const res = await sql.prepare<{ doc: string }>(`SELECT doc FROM evidence ORDER BY occurred_at DESC LIMIT ?`).bindParams(limit).execute();
+    const res = await sql.prepare<{ doc: string }>(`SELECT doc FROM evidence ORDER BY occurred_at DESC LIMIT ${lim(limit)}`).execute();
     return parse<Evidence>(res.rows);
   }
 
@@ -161,7 +164,7 @@ export class SqlStore implements Store {
 
   async listLedger(limit = 200) {
     await ensure();
-    const res = await sql.prepare<LedgerRow>(`SELECT * FROM ledger ORDER BY seq DESC LIMIT ?`).bindParams(limit).execute();
+    const res = await sql.prepare<LedgerRow>(`SELECT * FROM ledger ORDER BY seq DESC LIMIT ${lim(limit)}`).execute();
     return res.rows.map(toEntry);
   }
 
