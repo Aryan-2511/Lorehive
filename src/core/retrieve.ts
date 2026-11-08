@@ -13,6 +13,25 @@ export interface Requester {
   accessibleProjects?: ReadonlySet<string>;
 }
 
+/**
+ * Build a requester from the Jira projects the user can browse.
+ * `browsable` is undefined when that could not be checked, and access then
+ * fails closed: only seeded demo data stays visible, never a real repo or project.
+ */
+export function buildRequester(
+  browsable: ReadonlySet<string> | undefined,
+  repos: Array<{ repo: string; project?: string }>,
+  demo?: { repos: readonly string[]; projects: readonly string[] },
+): Requester & { permissionsVerified: boolean } {
+  const accessibleRepos = new Set(
+    browsable ? repos.filter((r) => !r.project || browsable.has(r.project)).map((r) => r.repo) : [],
+  );
+  const accessibleProjects = new Set(browsable ?? []);
+  demo?.repos.forEach((r) => accessibleRepos.add(r));
+  demo?.projects.forEach((p) => accessibleProjects.add(p));
+  return { accessibleRepos, accessibleProjects, permissionsVerified: browsable !== undefined };
+}
+
 export interface Reranker {
   rerank(task: string, lessons: Lesson[]): Promise<Lesson[]>;
 }

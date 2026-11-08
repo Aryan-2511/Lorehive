@@ -4,7 +4,7 @@ import api, { route } from '@forge/api';
 import { Engine } from '../core/engine';
 import { SqlStore } from '../store/sql';
 import { llmWriter } from './llm';
-import { Requester } from '../core/retrieve';
+import { buildRequester } from '../core/retrieve';
 
 export const store = new SqlStore();
 
@@ -37,21 +37,33 @@ export async function repoConfigs(): Promise<RepoConfig[]> {
   return raw ? (JSON.parse(raw) as RepoConfig[]) : [];
 }
 
+/** Jira projects the user can browse, or undefined if that can't be checked. */
+async function browsableProjects(): Promise<Set<string> | undefined> {
+  try {
+    const res = await api.asUser().requestJira(route`/rest/api/3/project/search?maxResults=100`);
+    if (!res.ok) {
+      console.warn(`Could not check the user's Jira projects: ${res.status}`);
+      return undefined;
+    }
+    const body = (await res.json()) as { values: Array<{ key: string }> };
+    return new Set(body.values.map((p) => p.key));
+  } catch (err) {
+    // External MCP clients can land here until the user has an app consent entry.
+    console.warn("Could not check the user's Jira projects", err);
+    return undefined;
+  }
+}
+
 /**
  * What the requesting user can see right now: Jira projects they can browse
- * (asked as the user), and repos whose owning project is one of those.
+ * (asked as the user), repos owned by those projects, and seeded demo data.
  */
-export async function requesterFor(): Promise<Requester> {
-  const res = await api.asUser().requestJira(route`/rest/api/3/project/search?maxResults=100`);
-  if (!res.ok) return { accessibleProjects: new Set(), accessibleRepos: new Set() };
-  const body = (await res.json()) as { values: Array<{ key: string }> };
-  const projects = new Set(body.values.map((p) => p.key));
-  const repos = (await repoConfigs()).filter((r) => !r.project || projects.has(r.project)).map((r) => r.repo);
+export async function requesterFor() {
   const demo = (await store.getMeta('demo')) === 'on';
-  // In demo mode seeded repos are visible to everyone.
-  if (demo) {
-    const { DEMO_REPOS } = await import('../demo/seed');
-    DEMO_REPOS.forEach((r) => repos.push(r));
-  }
-  return { accessibleProjects: demo ? undefined : projects, accessibleRepos: new Set(repos) };
+  const seeded = demo ? await import('../demo/seed') : undefined;
+  return buildRequester(
+    await browsableProjects(),
+    await repoConfigs(),
+    seeded && { repos: seeded.DEMO_REPOS, projects: seeded.DEMO_PROJECTS },
+  );
 }

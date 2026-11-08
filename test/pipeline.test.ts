@@ -4,8 +4,9 @@ import { MemoryStore } from '../src/store/store';
 import { DEMO_STEPS, seededActivity } from '../src/demo/seed';
 import { runDemoStep, runFullDemo } from '../src/demo/runner';
 import { lessonIdFor } from '../src/core/distill';
+import { evaluateTopic, explainDecision } from '../src/core/promote';
 import { verifyChain } from '../src/core/ledger';
-import { lessonsFor } from '../src/core/retrieve';
+import { buildRequester, lessonsFor } from '../src/core/retrieve';
 import { guardFile } from '../src/core/guard';
 import { parseBlock } from '../src/core/compile';
 
@@ -88,6 +89,55 @@ describe('learning pipeline (demo story)', () => {
     const n = store.lessons.size;
     await runFullDemo(store, engine);
     expect(store.lessons.size).toBe(n);
+  });
+});
+
+describe('permission filter', () => {
+  const repos = [{ repo: 'github:acme/owned', project: 'PAY' }, { repo: 'github:acme/other', project: 'HR' }, { repo: 'github:acme/open' }];
+
+  it('allows repos owned by projects the user can browse', () => {
+    const r = buildRequester(new Set(['PAY']), repos);
+    expect([...r.accessibleRepos!].sort()).toEqual(['github:acme/open', 'github:acme/owned']);
+    expect(r.permissionsVerified).toBe(true);
+  });
+
+  it('fails closed when access cannot be checked, leaving only seeded demo data', () => {
+    const r = buildRequester(undefined, repos, { repos: ['github:demo/a'], projects: ['SUP'] });
+    expect([...r.accessibleRepos!]).toEqual(['github:demo/a']);
+    expect([...r.accessibleProjects!]).toEqual(['SUP']);
+    expect(r.permissionsVerified).toBe(false);
+    expect(buildRequester(undefined, repos).accessibleRepos!.size).toBe(0);
+  });
+
+  it('seeded lessons are still returned when access cannot be checked', async () => {
+    const { store, engine } = setup();
+    for (const s of ['revert-a', 'fixup-b']) await runDemoStep(engine, s);
+    const { DEMO_REPOS, DEMO_PROJECTS } = await import('../src/demo/seed');
+    const requester = buildRequester(undefined, [], { repos: DEMO_REPOS, projects: DEMO_PROJECTS });
+    const r = await lessonsFor(await store.listLessons(), {}, 'add an HTTP client call', requester);
+    expect(r.lessons[0]?.title).toContain('axios');
+  });
+});
+
+describe('explaining promotion', () => {
+  it('states the rule and the quorum result in plain words', async () => {
+    const { store, engine } = setup();
+    for (const s of ['revert-a', 'fixup-b']) await runDemoStep(engine, s);
+    const met = explainDecision(evaluateTopic('avoid:axios', await store.evidenceByTopic('avoid:axios')));
+    expect(met.rule).toContain('at least 2 different trusted people');
+    expect(met.result).toBe(
+      'Quorum met: 2 of 2 required people (alice, bob), 2 of 2 required places (github:acme/payments-api, github:acme/billing-svc).',
+    );
+    expect(met.missing).toEqual([]);
+  });
+
+  it('says what is missing when the quorum is not met', async () => {
+    const { store, engine } = setup();
+    await runDemoStep(engine, 'poison-sybil');
+    const topic = 'prefer:@evil/debug';
+    const notMet = explainDecision(evaluateTopic(topic, await store.evidenceByTopic(topic)));
+    expect(notMet.result).toBe('Quorum not met: 1 of 2 required people (mallory), 1 of 2 required places (github:acme/payments-api).');
+    expect(notMet.missing).toHaveLength(2);
   });
 });
 

@@ -103,3 +103,24 @@ export const REJECT_LABELS: Record<RejectReason, string> = {
   same_vendor_review: 'Reviewer agent is the same vendor as the author',
   duplicate_actor: 'Same person already counted (one vote per account)',
 };
+
+export const COUNTED_LABEL = 'Counted: a correcting action by a trusted person, and their first vote on this topic';
+
+/**
+ * The promotion rule and result in plain words. The Librarian quotes these, so
+ * "why was this promoted?" is answered by the rule rather than a model's guess.
+ */
+export function explainDecision(decision: PromotionDecision, policy: PromotionPolicy = DEFAULT_POLICY) {
+  const people = decision.distinctActors.length;
+  const places = decision.distinctScopes.length;
+  const counts =
+    `${people} of ${policy.minDistinctActors} required people (${decision.distinctActors.join(', ') || 'none'}), ` +
+    `${places} of ${policy.minDistinctScopes} required places (${decision.distinctScopes.join(', ') || 'none'})`;
+  return {
+    rule:
+      `A lesson is promoted only when at least ${policy.minDistinctActors} different trusted people correct agents ` +
+      `in at least ${policy.minDistinctScopes} different repos or projects. Each account counts once, and text in tickets never counts.`,
+    result: decision.promote ? `Quorum met: ${counts}.` : `Quorum not met: ${counts}.`,
+    missing: decision.missing,
+  };
+}

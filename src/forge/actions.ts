@@ -7,7 +7,7 @@
  * from inputs (an agent may hallucinate inputs).
  */
 import { lessonsFor } from '../core/retrieve';
-import { REJECT_LABELS, evaluateTopic } from '../core/promote';
+import { COUNTED_LABEL, REJECT_LABELS, evaluateTopic, explainDecision } from '../core/promote';
 import { llmReranker } from './llm';
 import { engine, requesterFor, store } from './runtime';
 import { Lesson } from '../core/types';
@@ -35,9 +35,17 @@ export async function lessonsForAction(
       evidence: l.citations,
       seeded: !!l.seeded,
     })),
-    note: result.lessons.length
-      ? 'Follow these organisation lessons. After finishing, call report_outcome with the lesson ids you applied.'
-      : 'No organisation lessons apply to this task.',
+    permissionsVerified: requester.permissionsVerified,
+    note: [
+      requester.permissionsVerified
+        ? ''
+        : "Lorehive could not verify this user's access, so only seeded demo lessons can be returned. Real lessons may exist. The user may need to approve this app at https://id.atlassian.com/manage-profile/apps.",
+      result.lessons.length
+        ? 'Follow these organisation lessons. After finishing, call report_outcome with the lesson ids you applied.'
+        : 'No lessons were found for this task.',
+    ]
+      .filter(Boolean)
+      .join(' '),
   };
 }
 
@@ -101,11 +109,11 @@ export async function explainLessonAction(payload: { lessonId?: string; query?: 
         where: e.scope.repo ?? e.scope.project,
         link: e.url,
         counted: !!v?.counted,
-        whyNotCounted: v && !v.counted ? REJECT_LABELS[v.reason] : undefined,
+        reason: v && !v.counted ? REJECT_LABELS[v.reason] : COUNTED_LABEL,
         seeded: !!e.seeded,
       };
     }),
-    quorum: { people: decision.distinctActors.length, places: decision.distinctScopes.length },
+    promotion: explainDecision(decision),
   };
 }
 

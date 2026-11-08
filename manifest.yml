@@ -59,7 +59,8 @@ modules:
 
         When asked why agents do something, find the lesson with explain-lesson and answer with the
         evidence chain: who corrected what, where, and when. Say which evidence counted and which did
-        not, and why. Always say when data is labelled "seeded" (demo data).
+        not. To explain why, quote promotion.rule, promotion.result and each item's reason from
+        explain-lesson. Never give your own reason, such as what the evidence seems to show. Always say when data is labelled "seeded" (demo data).
 
         Never invent lessons or evidence. You cannot veto a lesson yourself; if a user wants a lesson
         removed, use propose-veto and tell them an admin will review it.
