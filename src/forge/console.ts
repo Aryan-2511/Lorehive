@@ -14,8 +14,19 @@ import { engine, repoConfigs, store } from './runtime';
 
 const resolver = new Resolver();
 
+/** The GitHub webhook URL for this install: reuse an existing one, otherwise create it. */
+async function githubWebhookUrl(): Promise<string | undefined> {
+  try {
+    const existing = await webTrigger.queryUrls('github-webhook');
+    return existing[0]?.url ?? (await webTrigger.getUrl('github-webhook'));
+  } catch (err) {
+    console.warn('Could not get the GitHub webhook URL', err);
+    return undefined;
+  }
+}
+
 resolver.define('getState', async () => {
-  const webhookUrl = await webTrigger.getUrl('github-webhook').catch(() => undefined);
+  const webhookUrl = await githubWebhookUrl();
   const [lessons, evidence, ledger, demo, repos] = await Promise.all([
     store.listLessons(),
     store.listEvidence(100),
