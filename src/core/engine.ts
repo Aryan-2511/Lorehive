@@ -65,14 +65,14 @@ export class Engine {
     }
     // Still evaluate a repeat: a queue retry may follow a failure after the evidence was saved.
     if (!evidence.topic || evidence.kind === 'text_claim') return {};
-    return this.evaluate(evidence.topic);
+    return this.evaluate(evidence.topic, !!evidence.seeded);
   }
 
   /** Re-evaluate a topic (also run by the scheduled distiller). */
-  async evaluate(topic: string): Promise<{ decision: PromotionDecision; lesson?: Lesson }> {
-    const evidence = await this.store.evidenceByTopic(topic);
+  async evaluate(topic: string, seeded: boolean): Promise<{ decision: PromotionDecision; lesson?: Lesson }> {
+    const evidence = await this.store.evidenceByTopic(topic, seeded);
     const decision = evaluateTopic(topic, evidence, this.opts.policy ?? DEFAULT_POLICY);
-    const id = lessonIdFor(topic);
+    const id = lessonIdFor(topic, seeded);
     const existing = await this.store.getLesson(id);
 
     // Retired / vetoed / superseded topics are never re-promoted automatically.

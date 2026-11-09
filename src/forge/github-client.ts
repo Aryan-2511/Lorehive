@@ -68,15 +68,26 @@ export class GitHub {
   async openLessonPr(repo: string, files: Array<{ path: string; content: string }>, title: string, body: string) {
     const meta = await this.get<{ default_branch: string }>(`/repos/${repo}`);
     const base = meta.default_branch;
-    const baseRef = await this.get<{ object: { sha: string } }>(`/repos/${repo}/git/ref/heads/${base}`);
     const branch = LESSON_BRANCH;
-    try {
-      await this.request('POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: baseRef.object.sha });
-    } catch {
-      await this.request('PATCH', `/repos/${repo}/git/refs/heads/${branch}`, { sha: baseRef.object.sha, force: true });
+    const findOpen = () =>
+      this.get<Array<{ number: number; html_url: string }>>(`/repos/${repo}/pulls?head=${repo.split('/')[0]}:${branch}&state=open`);
+
+    const open = (await findOpen())[0];
+    const branchExists = await this.get(`/repos/${repo}/git/ref/heads/${branch}`).then(
+      () => true,
+      (e) => (String(e).includes('-> 404') ? false : Promise.reject(e)),
+    );
+    // Never reset a branch with an open PR: that empties the PR and GitHub closes it.
+    // Commit on top instead, which also restores a block someone edited by hand.
+    if (!open) {
+      const baseRef = await this.get<{ object: { sha: string } }>(`/repos/${repo}/git/ref/heads/${base}`);
+      if (branchExists) await this.request('PATCH', `/repos/${repo}/git/refs/heads/${branch}`, { sha: baseRef.object.sha, force: true });
+      else await this.request('POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: baseRef.object.sha });
     }
+
     for (const f of files) {
       const existing = await this.readFile(repo, f.path, branch);
+      if (existing?.content === f.content) continue;
       await this.request('PUT', `/repos/${repo}/contents/${encodeURI(f.path)}`, {
         message: `lorehive: update ${f.path}`,
         content: Buffer.from(f.content, 'utf8').toString('base64'),
@@ -84,9 +95,10 @@ export class GitHub {
         ...(existing ? { sha: existing.sha } : {}),
       });
     }
-    const open = await this.get<Array<{ number: number; html_url: string }>>(`/repos/${repo}/pulls?head=${repo.split('/')[0]}:${branch}&state=open`);
-    if (open[0]) return open[0];
-    return this.request<{ number: number; html_url: string }>('POST', `/repos/${repo}/pulls`, { title, head: branch, base, body });
+    if (open) return open;
+    // Another sync may have opened it meanwhile.
+    const raced = (await findOpen())[0];
+    return raced ?? this.request<{ number: number; html_url: string }>('POST', `/repos/${repo}/pulls`, { title, head: branch, base, body });
   }
 
   /** Post a check run (used for the guard and compiled lesson checks). */

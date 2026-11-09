@@ -111,7 +111,8 @@ function renderDelivery(s: State) {
       <label><input type="checkbox" id="auto-${i}" ${r.autoPr ? 'checked' : ''}> Open lesson PRs</label>
       <label>Jira project <input type="text" size="8" id="proj-${i}" value="${esc(r.project ?? '')}"></label>
       <button class="secondary" data-repo-save="${i}">Save</button></div></li>`).join('') || '<li class="muted">No repos yet. A repo appears here when its first webhook arrives. It gets no PRs until you turn them on.</li>'}
-    </ul><p class="muted">Lessons from a repo with no Jira project are visible to everyone on this site.</p></div>
+    </ul><p class="muted">Lessons from a repo with no Jira project are visible to everyone on this site. Seeded demo lessons are never written into real repos.</p>
+    ${s.connected.length ? '<button class="secondary" id="sync">Sync instruction files now</button> <span id="sync-out" class="muted"></span>' : ''}</div>
   <div class="card"><h2>MCP</h2><p>Outside agents (Claude Code, Cursor) call <code>lessons_for</code> and <code>report_outcome</code> through the Lorehive Rovo MCP server. Rovo Studio agents add the same tools.</p></div>`;
 }
 
@@ -156,6 +157,11 @@ document.addEventListener('click', async (ev) => {
   if (btn.id === 'start-demo') {
     await busy(btn, () => invoke('runDemoStep', { stepId: 'history' }));
     (document.querySelector('[data-tab=demo]') as HTMLButtonElement).click();
+  }
+  if (btn.id === 'sync') {
+    const r: any = await busy(btn, () => invoke('syncRepos'));
+    const out = document.getElementById('sync-out');
+    if (out && r?.ok) out.textContent = r.message;
   }
   if (btn.id === 'full-demo') await busy(btn, () => invoke('runFullDemo'));
   if (btn.id === 'measure') await busy(btn, () => invoke('measureNow'));

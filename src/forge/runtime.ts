@@ -17,7 +17,8 @@ export function engine(opts: { demo?: boolean } = {}) {
   return new Engine(store, {
     // Demo mode uses the deterministic writer so the scripted story is repeatable.
     writer: opts.demo ? undefined : llmWriter,
-    onEvent: async (type, subject) => {
+    onEvent: async (type, subject, payload) => {
+      console.log(`Ledger: ${type} ${subject}${payload.topic ? ` (topic ${payload.topic})` : ''}`);
       if (type === 'lesson.promoted' || type === 'lesson.superseded' || type === 'lesson.retired' || type === 'lesson.vetoed') {
         await queues.propagate.push({ body: { reason: type, lessonId: subject } });
       }

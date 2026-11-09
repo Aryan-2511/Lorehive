@@ -8,7 +8,8 @@ import { LedgerEntry } from '../core/ledger';
 export interface Store {
   /** returns false when the evidence id already exists (idempotent harvest) */
   addEvidence(e: Evidence): Promise<boolean>;
-  evidenceByTopic(topic: string): Promise<Evidence[]>;
+  /** Seeded and real evidence never mix: a demo actor must not count toward a real lesson. */
+  evidenceByTopic(topic: string, seeded: boolean): Promise<Evidence[]>;
   getEvidence(ids: string[]): Promise<Evidence[]>;
   listEvidence(limit?: number): Promise<Evidence[]>;
 
@@ -43,8 +44,10 @@ export class MemoryStore implements Store {
     this.evidence.set(e.id, structuredClone(e));
     return true;
   }
-  async evidenceByTopic(topic: string) {
-    return [...this.evidence.values()].filter((e) => e.topic === topic).map((e) => structuredClone(e));
+  async evidenceByTopic(topic: string, seeded: boolean) {
+    return [...this.evidence.values()]
+      .filter((e) => e.topic === topic && !!e.seeded === seeded)
+      .map((e) => structuredClone(e));
   }
   async getEvidence(ids: string[]) {
     return ids.map((id) => this.evidence.get(id)).filter((e): e is Evidence => !!e);

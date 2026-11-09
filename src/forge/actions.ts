@@ -97,7 +97,7 @@ export async function explainLessonAction(payload: { lessonId?: string; query?: 
     all.find((l) => l.id === payload.lessonId) ??
     all.find((l) => q && `${l.title} ${l.rule} ${l.topic}`.toLowerCase().includes(q));
   if (!lesson) return 'No matching lesson found.';
-  const evidence = await store.evidenceByTopic(lesson.topic);
+  const evidence = await store.evidenceByTopic(lesson.topic, !!lesson.seeded);
   const decision = evaluateTopic(lesson.topic, evidence);
   return {
     lesson: describe(lesson),

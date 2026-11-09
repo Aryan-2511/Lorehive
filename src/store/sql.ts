@@ -96,9 +96,12 @@ export class SqlStore implements Store {
     return ((res.rows as unknown as { affectedRows?: number }).affectedRows ?? 0) > 0;
   }
 
-  async evidenceByTopic(topic: string) {
+  async evidenceByTopic(topic: string, seeded: boolean) {
     await ensure();
-    const res = await sql.prepare<{ doc: string }>(`SELECT doc FROM evidence WHERE topic = ? ORDER BY occurred_at`).bindParams(topic).execute();
+    const res = await sql
+      .prepare<{ doc: string }>(`SELECT doc FROM evidence WHERE topic = ? AND seeded = ? ORDER BY occurred_at`)
+      .bindParams(topic, seeded)
+      .execute();
     return parse<Evidence>(res.rows);
   }
 

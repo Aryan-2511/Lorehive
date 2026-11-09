@@ -141,7 +141,7 @@ export async function distil(
   const projects = [...new Set(counted.map((e) => e.scope.project).filter((p): p is string => !!p))];
   const languages = [...new Set(counted.flatMap((e) => e.scope.languages ?? []))];
   return {
-    id: lessonIdFor(topic),
+    id: lessonIdFor(topic, evidence.some((e) => e.seeded)),
     topic,
     ...text,
     status: 'promoted',
@@ -173,11 +173,15 @@ export function supersededBy(newLesson: Lesson, existing: Lesson[]): Lesson[] {
   const [kind, subject] = splitTopic(newLesson.topic);
   if (kind !== 'avoid') return [];
   return existing.filter(
-    (l) => l.status === 'promoted' && l.id !== newLesson.id && recommends(l) === subject,
+    (l) => l.status === 'promoted' && l.id !== newLesson.id && !!l.seeded === !!newLesson.seeded && recommends(l) === subject,
   );
 }
 
-/** Lesson ids are stable per topic so a candidate and its promotion share an id. */
-export function lessonIdFor(topic: string): string {
-  return `L-${hashId(topic).slice(0, 8)}`;
+/**
+ * Lesson ids are stable per topic so a candidate and its promotion share an id.
+ * Real lessons get their own namespace, so a real lesson never shares an id
+ * (or its evidence) with a seeded demo lesson on the same topic.
+ */
+export function lessonIdFor(topic: string, seeded: boolean): string {
+  return `L-${hashId(seeded ? topic : `real|${topic}`).slice(0, 8)}`;
 }

@@ -10,7 +10,7 @@ import { verifyChain } from '../core/ledger';
 import { compileBlock, TARGETS } from '../core/compile';
 import { DEMO_PROJECTS, DEMO_REPOS, DEMO_STEPS, FLEET, seededActivity } from '../demo/seed';
 import { resetDemo, runDemoStep, runFullDemo } from '../demo/runner';
-import { engine, repoConfigs, store } from './runtime';
+import { engine, queues, repoConfigs, store } from './runtime';
 
 const resolver = new Resolver();
 
@@ -37,8 +37,8 @@ resolver.define('getState', async () => {
 
   const enriched = await Promise.all(
     lessons.map(async (l) => {
-      const ev = evidence.filter((e) => e.topic === l.topic);
-      const decision = evaluateTopic(l.topic, await store.evidenceByTopic(l.topic));
+      const ev = evidence.filter((e) => e.topic === l.topic && !!e.seeded === !!l.seeded);
+      const decision = evaluateTopic(l.topic, await store.evidenceByTopic(l.topic, !!l.seeded));
       const vetoProposal = await store.getMeta(`veto-proposal:${l.id}`);
       return {
         ...l,
@@ -111,6 +111,13 @@ resolver.define('previewFile', async ({ payload }) => {
   const target = TARGETS[payload.format as keyof typeof TARGETS] ?? TARGETS['agents-md'];
   const lessons = (await store.listLessons()).filter((l) => l.status === 'promoted');
   return compileBlock(lessons, target, 1);
+});
+
+resolver.define('syncRepos', async () => {
+  const enabled = (await repoConfigs()).filter((r) => r.autoPr);
+  if (!enabled.length) return { ok: false, message: 'Turn on "Open lesson PRs" for at least one repo first.' };
+  await queues.propagate.push({ body: { reason: 'manual', lessonId: '' } });
+  return { ok: true, message: `Syncing ${enabled.length} repo(s). Lesson PRs open in about a minute.` };
 });
 
 resolver.define('updateRepo', async ({ payload }) => {

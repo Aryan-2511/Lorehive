@@ -21,7 +21,7 @@ describe('learning pipeline (demo story)', () => {
   it('a single revert is a candidate; a second person in a second repo promotes it', async () => {
     const { store, engine } = setup();
     await runDemoStep(engine, 'revert-a');
-    const id = lessonIdFor('avoid:axios');
+    const id = lessonIdFor('avoid:axios', true);
     expect((await store.getLesson(id))?.status).toBe('candidate');
 
     const { results } = await runDemoStep(engine, 'fixup-b');
@@ -35,7 +35,7 @@ describe('learning pipeline (demo story)', () => {
   it('review findings from a different vendor become lessons', async () => {
     const { store, engine } = setup();
     await runDemoStep(engine, 'review');
-    const l = await store.getLesson(lessonIdFor('review:missing-tenant-check'));
+    const l = await store.getLesson(lessonIdFor('review:missing-tenant-check', true));
     expect(l?.status).toBe('promoted');
   });
 
@@ -59,8 +59,8 @@ describe('learning pipeline (demo story)', () => {
   it('moving to a new client supersedes the old lesson instead of deleting it', async () => {
     const { store, engine } = setup();
     for (const s of ['revert-a', 'fixup-b', 'migrate-client']) await runDemoStep(engine, s);
-    const old = await store.getLesson(lessonIdFor('avoid:axios'));
-    const neu = await store.getLesson(lessonIdFor('avoid:@org/http'));
+    const old = await store.getLesson(lessonIdFor('avoid:axios', true));
+    const neu = await store.getLesson(lessonIdFor('avoid:@org/http', true));
     expect(old?.status).toBe('superseded');
     expect(old?.supersededBy).toBe(neu?.id);
     expect(old?.validTo).toBeDefined();
@@ -76,7 +76,7 @@ describe('learning pipeline (demo story)', () => {
     const byTopic = Object.fromEntries(results.map((r) => [r.lesson.topic, r.result.verdict]));
     expect(byTopic['avoid:axios']).toBe('effective');
     expect(byTopic['require:retries']).toBe('harmful');
-    expect((await store.getLesson(lessonIdFor('require:retries')))?.status).toBe('retired');
+    expect((await store.getLesson(lessonIdFor('require:retries', true)))?.status).toBe('retired');
     expect(verifyChain(store.ledger).ok).toBe(true);
 
     store.ledger[2]!.payload.actor = 'someone-else';
@@ -93,6 +93,19 @@ describe('learning pipeline (demo story)', () => {
 });
 
 describe('real-world safety', () => {
+  it('seeded demo evidence never counts toward a real lesson on the same topic', async () => {
+    const { store, engine } = setup();
+    await runDemoStep(engine, 'revert-a'); // seeded: alice, payments-api, avoid:axios
+    const real = DEMO_STEPS.find((s) => s.id === 'fixup-b')!.signals[0]!;
+    const { results } = [await engine.ingest(real, false)].map((r) => ({ results: [r] }))[0]!;
+    // A real fix-up by a second person in a second repo, on the same topic as the seeded revert.
+    expect(results[0]!.decision?.promote).toBe(false);
+    expect(results[0]!.decision?.distinctActors).toEqual(['bob']);
+    expect((await store.getLesson(lessonIdFor('avoid:axios', false)))?.status).toBe('candidate');
+    expect((await store.getLesson(lessonIdFor('avoid:axios', true)))?.status).toBe('candidate');
+    expect(lessonIdFor('avoid:axios', false)).not.toBe(lessonIdFor('avoid:axios', true));
+  });
+
   it('concurrent writers keep one valid ledger chain', async () => {
     const { store, engine } = setup();
     await Promise.all(Array.from({ length: 8 }, (_, i) => engine.log('guard.blocked', `r${i}`, {})));
@@ -116,7 +129,7 @@ describe('real-world safety', () => {
     const { harvest } = await import('../src/core/harvest');
     await store.addEvidence(harvest(signal, true)!); // saved, then the handler died
     await engine.ingest(signal, true);
-    expect((await store.getLesson(lessonIdFor('avoid:axios')))?.status).toBe('promoted');
+    expect((await store.getLesson(lessonIdFor('avoid:axios', true)))?.status).toBe('promoted');
   });
 
   it('only calls the LLM writer once a lesson is promoted', async () => {
@@ -186,7 +199,7 @@ describe('explaining promotion', () => {
   it('states the rule and the quorum result in plain words', async () => {
     const { store, engine } = setup();
     for (const s of ['revert-a', 'fixup-b']) await runDemoStep(engine, s);
-    const met = explainDecision(evaluateTopic('avoid:axios', await store.evidenceByTopic('avoid:axios')));
+    const met = explainDecision(evaluateTopic('avoid:axios', await store.evidenceByTopic('avoid:axios', true)));
     expect(met.rule).toContain('at least 2 different trusted people');
     expect(met.result).toBe(
       'Quorum met: 2 of 2 required people (alice, bob), 2 of 2 required places (github:acme/payments-api, github:acme/billing-svc).',
@@ -198,7 +211,7 @@ describe('explaining promotion', () => {
     const { store, engine } = setup();
     await runDemoStep(engine, 'poison-sybil');
     const topic = 'prefer:@evil/debug';
-    const notMet = explainDecision(evaluateTopic(topic, await store.evidenceByTopic(topic)));
+    const notMet = explainDecision(evaluateTopic(topic, await store.evidenceByTopic(topic, true)));
     expect(notMet.result).toBe('Quorum not met: 1 of 2 required people (mallory), 1 of 2 required places (github:acme/payments-api).');
     expect(notMet.missing).toHaveLength(2);
   });
