@@ -14,6 +14,7 @@ import { distil, lessonIdFor, LessonWriter, supersededBy, templateWriter } from 
 import { DEFAULT_POLICY, Evidence, Lesson, PromotionPolicy } from './types';
 import { LedgerType, nextEntry } from './ledger';
 import { compileBlock, TARGETS, TargetFormat, upsertBlock } from './compile';
+import { appliesTo } from './retrieve';
 import { measure, RepoActivity } from './efficacy';
 
 export interface EngineOptions {
@@ -32,9 +33,15 @@ export class Engine {
   }
 
   async log(type: LedgerType, subject: string, payload: Record<string, unknown>) {
-    const prev = await this.store.lastLedger();
-    await this.store.appendLedger(nextEntry(prev, type, subject, payload, this.now()));
-    await this.opts.onEvent?.(type, subject, payload);
+    // Queue consumers run concurrently: if another writer takes this seq, rebuild on top of it.
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const prev = await this.store.lastLedger();
+      if (await this.store.appendLedger(nextEntry(prev, type, subject, payload, this.now()))) {
+        await this.opts.onEvent?.(type, subject, payload);
+        return;
+      }
+    }
+    throw new Error(`Could not append ${type} to the ledger: too many concurrent writers`);
   }
 
   /** Harvest and record a signal. Returns the evidence (or null if the signal isn't evidence). */
@@ -46,15 +53,17 @@ export class Engine {
 
   async record(evidence: Evidence): Promise<{ decision?: PromotionDecision; lesson?: Lesson }> {
     const fresh = await this.store.addEvidence(evidence);
-    if (!fresh) return {};
-    await this.log('evidence.recorded', evidence.id, {
-      kind: evidence.kind,
-      topic: evidence.topic,
-      scope: evidence.scope.repo ?? evidence.scope.project,
-      actor: evidence.actor.id,
-      url: evidence.url,
-      seeded: !!evidence.seeded,
-    });
+    if (fresh) {
+      await this.log('evidence.recorded', evidence.id, {
+        kind: evidence.kind,
+        topic: evidence.topic,
+        scope: evidence.scope.repo ?? evidence.scope.project,
+        actor: evidence.actor.id,
+        url: evidence.url,
+        seeded: !!evidence.seeded,
+      });
+    }
+    // Still evaluate a repeat: a queue retry may follow a failure after the evidence was saved.
     if (!evidence.topic || evidence.kind === 'text_claim') return {};
     return this.evaluate(evidence.topic);
   }
@@ -70,7 +79,9 @@ export class Engine {
     if (existing && existing.status !== 'candidate') return { decision, lesson: existing };
 
     const counted = decision.verdicts.filter((v) => v.counted).map((v) => v.evidenceId);
-    const draft = await distil(topic, evidence, counted, this.opts.writer ?? templateWriter, this.now());
+    // Candidates use the template: the LLM is only billed for lessons that get promoted.
+    const writer = decision.promote ? (this.opts.writer ?? templateWriter) : templateWriter;
+    const draft = await distil(topic, evidence, counted, writer, this.now());
 
     if (!decision.promote) {
       const candidate: Lesson = { ...draft, status: 'candidate', citations: draft.citations };
@@ -120,8 +131,16 @@ export class Engine {
   }
 
   /** Build the new contents of every instruction file for a repo and remember the issued seals. */
-  async compileRepo(repo: string, current: Partial<Record<TargetFormat, string>>, formats: TargetFormat[]) {
-    const lessons = (await this.store.listLessons()).filter((l) => l.status === 'promoted');
+  async compileRepo(
+    repo: string,
+    current: Partial<Record<TargetFormat, string>>,
+    formats: TargetFormat[],
+    opts: { project?: string; includeSeeded?: boolean } = {},
+  ) {
+    // Seeded demo lessons must never be written into a real repo.
+    const lessons = (await this.store.listLessons()).filter(
+      (l) => l.status === 'promoted' && (opts.includeSeeded || !l.seeded) && appliesTo(l, { repo, project: opts.project }),
+    );
     const rev = Number((await this.store.getMeta(`rev:${repo}`)) ?? '0') + 1;
     const files = [];
     for (const f of formats) {

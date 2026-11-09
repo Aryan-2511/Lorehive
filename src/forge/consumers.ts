@@ -17,12 +17,12 @@ export async function propagateConsumer(event: AsyncEvent) {
   const { reason, lessonId } = event.body as { reason: string; lessonId: string };
   const e = engine();
   for (const cfg of await repoConfigs()) {
-    if (!cfg.repo.startsWith('github:') || !cfg.installationId) continue; // Bitbucket auto-PR: planned
+    if (!cfg.autoPr || !cfg.repo.startsWith('github:') || !cfg.installationId) continue; // Bitbucket auto-PR: planned
     const repo = cfg.repo.slice('github:'.length);
     const gh = new GitHub(cfg.installationId);
     const current: Partial<Record<TargetFormat, string>> = {};
     for (const f of cfg.formats) current[f] = (await gh.readFile(repo, TARGETS[f].path))?.content;
-    const { rev, files } = await e.compileRepo(cfg.repo, current, cfg.formats);
+    const { rev, files } = await e.compileRepo(cfg.repo, current, cfg.formats, { project: cfg.project });
     // compileRepo returns files in the same order as cfg.formats
     const changed = files.filter((f, i) => f.content !== current[cfg.formats[i]!]);
     if (!changed.length) continue;

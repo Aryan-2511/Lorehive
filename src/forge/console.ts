@@ -2,18 +2,20 @@
  * Resolver for the Lorehive console (Custom UI). The console is an admin page,
  * so only site admins can call the mutating functions.
  */
+import { webTrigger } from '@forge/api';
 import Resolver from '@forge/resolver';
 import { evaluateTopic, REJECT_LABELS } from '../core/promote';
 import { measure } from '../core/efficacy';
 import { verifyChain } from '../core/ledger';
 import { compileBlock, TARGETS } from '../core/compile';
 import { DEMO_PROJECTS, DEMO_REPOS, DEMO_STEPS, FLEET, seededActivity } from '../demo/seed';
-import { runDemoStep, runFullDemo } from '../demo/runner';
+import { resetDemo, runDemoStep, runFullDemo } from '../demo/runner';
 import { engine, repoConfigs, store } from './runtime';
 
 const resolver = new Resolver();
 
 resolver.define('getState', async () => {
+  const webhookUrl = await webTrigger.getUrl('github-webhook').catch(() => undefined);
   const [lessons, evidence, ledger, demo, repos] = await Promise.all([
     store.listLessons(),
     store.listEvidence(100),
@@ -54,6 +56,8 @@ resolver.define('getState', async () => {
     ledger,
     ledgerOk: verifyChain(ledger).ok,
     budgets,
+    connected: repos.map(({ repo, project, autoPr, formats }) => ({ repo, project, autoPr: !!autoPr, formats })),
+    webhookUrl,
     steps: DEMO_STEPS.map(({ id, title, narration }) => ({ id, title, narration })),
   };
 });
@@ -65,13 +69,21 @@ resolver.define('runDemoStep', async ({ payload }) => {
 });
 
 resolver.define('runFullDemo', async () => {
-  await runFullDemo(store, engine({ demo: true }));
-  return { ok: true };
+  try {
+    await runFullDemo(store, engine({ demo: true }));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: String((err as Error).message) };
+  }
 });
 
 resolver.define('resetDemo', async () => {
-  await store.clear();
-  return { ok: true };
+  try {
+    await resetDemo(store);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: String((err as Error).message) };
+  }
 });
 
 resolver.define('measureNow', async () => {
@@ -90,8 +102,15 @@ resolver.define('previewFile', async ({ payload }) => {
   return compileBlock(lessons, target, 1);
 });
 
-resolver.define('saveRepoConfig', async ({ payload }) => {
-  await store.setMeta('config:repos', JSON.stringify(payload.repos ?? []));
+resolver.define('updateRepo', async ({ payload }) => {
+  const project = String(payload.project ?? '').trim().toUpperCase();
+  if (project && !/^[A-Z][A-Z0-9_]*$/.test(project)) return { ok: false, message: `"${project}" is not a Jira project key.` };
+  const repos = await repoConfigs();
+  const repo = repos.find((r) => r.repo === payload.repo);
+  if (!repo) return { ok: false, message: 'Unknown repo.' };
+  repo.autoPr = !!payload.autoPr;
+  repo.project = project || undefined;
+  await store.setMeta('config:repos', JSON.stringify(repos));
   return { ok: true };
 });
 

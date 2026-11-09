@@ -57,7 +57,7 @@ export async function mergeCheck(event: PRCheckEvent) {
     if (line.startsWith('+++ b/')) files.push({ path: line.slice(6), added: [] });
     else if (line.startsWith('+') && !line.startsWith('+++')) files[files.length - 1]?.added.push(line.slice(1));
   }
-  const lessons = (await store.listLessons()).filter((l) => l.status === 'promoted' && l.check);
+  const lessons = (await store.listLessons()).filter((l) => l.status === 'promoted' && l.check && !l.seeded);
   const violations = checkAddedLines(files, lessons.map((l) => ({ lessonId: l.id, ...l.check! })));
   if (violations.length) {
     return { success: false, message: violations.map((v) => `${v.path}: ${v.message}`).join('; ').slice(0, 900) };

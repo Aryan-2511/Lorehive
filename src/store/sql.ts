@@ -156,10 +156,11 @@ export class SqlStore implements Store {
 
   async appendLedger(e: LedgerEntry) {
     await ensure();
-    await sql
-      .prepare(`INSERT INTO ledger (seq, at, type, subject, payload, prev_hash, hash) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    const res = await sql
+      .prepare(`INSERT IGNORE INTO ledger (seq, at, type, subject, payload, prev_hash, hash) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .bindParams(e.seq, e.at, e.type, e.subject, JSON.stringify(e.payload), e.prevHash, e.hash)
       .execute();
+    return ((res.rows as unknown as { affectedRows?: number }).affectedRows ?? 0) > 0;
   }
 
   async listLedger(limit = 200) {

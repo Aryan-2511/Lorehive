@@ -17,7 +17,8 @@ export interface Store {
   saveLesson(l: Lesson): Promise<void>;
 
   lastLedger(): Promise<LedgerEntry | undefined>;
-  appendLedger(e: LedgerEntry): Promise<void>;
+  /** returns false when another writer already took this seq */
+  appendLedger(e: LedgerEntry): Promise<boolean>;
   listLedger(limit?: number): Promise<LedgerEntry[]>;
 
   addIssuedSha(repo: string, sha: string): Promise<void>;
@@ -65,7 +66,9 @@ export class MemoryStore implements Store {
     return this.ledger[this.ledger.length - 1];
   }
   async appendLedger(e: LedgerEntry) {
+    if (this.ledger.some((x) => x.seq === e.seq)) return false;
     this.ledger.push(e);
+    return true;
   }
   async listLedger(limit = 200) {
     return this.ledger.slice(-limit).reverse();

@@ -54,9 +54,15 @@ export function nextEntry(
   return { ...base, hash: entryHash(base) };
 }
 
+/**
+ * Verifies the entries given. A partial list (the latest N) is checked from its
+ * own first entry, so it can't detect changes to anything older than that.
+ */
 export function verifyChain(entries: LedgerEntry[]): { ok: boolean; brokenAt?: number } {
-  let prev = GENESIS;
-  for (const e of [...entries].sort((a, b) => a.seq - b.seq)) {
+  const sorted = [...entries].sort((a, b) => a.seq - b.seq);
+  const first = sorted[0];
+  let prev = first && first.seq > 1 ? first.prevHash : GENESIS;
+  for (const e of sorted) {
     if (e.prevHash !== prev || entryHash(e) !== e.hash) return { ok: false, brokenAt: e.seq };
     prev = e.hash;
   }

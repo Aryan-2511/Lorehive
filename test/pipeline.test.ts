@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { Engine } from '../src/core/engine';
 import { MemoryStore } from '../src/store/store';
 import { DEMO_STEPS, seededActivity } from '../src/demo/seed';
-import { runDemoStep, runFullDemo } from '../src/demo/runner';
+import { resetDemo, runDemoStep, runFullDemo } from '../src/demo/runner';
 import { lessonIdFor } from '../src/core/distill';
 import { evaluateTopic, explainDecision } from '../src/core/promote';
-import { verifyChain } from '../src/core/ledger';
+import { nextEntry, verifyChain } from '../src/core/ledger';
 import { buildRequester, lessonsFor } from '../src/core/retrieve';
 import { guardFile } from '../src/core/guard';
 import { parseBlock } from '../src/core/compile';
@@ -92,6 +92,69 @@ describe('learning pipeline (demo story)', () => {
   });
 });
 
+describe('real-world safety', () => {
+  it('concurrent writers keep one valid ledger chain', async () => {
+    const { store, engine } = setup();
+    await Promise.all(Array.from({ length: 8 }, (_, i) => engine.log('guard.blocked', `r${i}`, {})));
+    expect(store.ledger).toHaveLength(8);
+    expect(verifyChain(store.ledger).ok).toBe(true);
+  });
+
+  it('a partial ledger verifies from its first entry and still catches edits', () => {
+    const a = nextEntry(undefined, 'guard.blocked', 'a', {});
+    const b = nextEntry(a, 'guard.blocked', 'b', {});
+    const c = nextEntry(b, 'guard.blocked', 'c', {});
+    expect(verifyChain([b, c]).ok).toBe(true);
+    expect(verifyChain([b, { ...c, subject: 'edited' }]).ok).toBe(false);
+    expect(verifyChain([{ ...a, prevHash: b.hash }]).ok).toBe(false);
+  });
+
+  it('a queue retry after a failed first attempt still promotes', async () => {
+    const { store, engine } = setup();
+    await runDemoStep(engine, 'revert-a');
+    const signal = DEMO_STEPS.find((s) => s.id === 'fixup-b')!.signals[0]!;
+    const { harvest } = await import('../src/core/harvest');
+    await store.addEvidence(harvest(signal, true)!); // saved, then the handler died
+    await engine.ingest(signal, true);
+    expect((await store.getLesson(lessonIdFor('avoid:axios')))?.status).toBe('promoted');
+  });
+
+  it('only calls the LLM writer once a lesson is promoted', async () => {
+    const store = new MemoryStore();
+    let calls = 0;
+    const writer = { write: async () => { calls++; return { title: 't', rule: 'r', rationale: 'x' }; } };
+    const engine = new Engine(store, { writer });
+    await runDemoStep(engine, 'revert-a');
+    expect(calls).toBe(0);
+    await runDemoStep(engine, 'fixup-b');
+    expect(calls).toBe(1);
+  });
+
+  it('seeded lessons are not compiled into real repos by default', async () => {
+    const { engine } = setup();
+    for (const s of ['revert-a', 'fixup-b']) await runDemoStep(engine, s);
+    const { files } = await engine.compileRepo('github:acme/real', {}, ['agents-md']);
+    expect(files[0]!.compiled.included).toEqual([]);
+    expect(files[0]!.content).not.toContain('axios');
+  });
+
+  it('demo reset refuses to wipe real evidence or connected repos', async () => {
+    const { store, engine } = setup();
+    await runDemoStep(engine, 'revert-a');
+    await resetDemo(store);
+    expect(store.evidence.size).toBe(0);
+
+    await engine.ingest(DEMO_STEPS.find((s) => s.id === 'fixup-b')!.signals[0]!, false);
+    await expect(resetDemo(store)).rejects.toThrow('Reset is disabled');
+    await expect(runFullDemo(store, engine)).rejects.toThrow('Reset is disabled');
+    expect(store.evidence.size).toBe(1);
+
+    await store.clear();
+    await store.setMeta('config:repos', JSON.stringify([{ repo: 'github:acme/real' }]));
+    await expect(resetDemo(store)).rejects.toThrow('Reset is disabled');
+  });
+});
+
 describe('permission filter', () => {
   const repos = [{ repo: 'github:acme/owned', project: 'PAY' }, { repo: 'github:acme/other', project: 'HR' }, { repo: 'github:acme/open' }];
 
@@ -163,7 +226,7 @@ describe('delivery', () => {
     for (const s of ['revert-a', 'fixup-b', 'review']) await runDemoStep(engine, s);
     const repo = 'github:acme/checkout-web';
     const human = '# Checkout\n\nBuild with `pnpm build`.\n';
-    const { files } = await engine.compileRepo(repo, { 'agents-md': human }, ['agents-md', 'copilot', 'cursor']);
+    const { files } = await engine.compileRepo(repo, { 'agents-md': human }, ['agents-md', 'copilot', 'cursor'], { includeSeeded: true });
     const agents = files.find((f) => f.path === 'AGENTS.md')!;
     expect(agents.content.startsWith(human)).toBe(true);
     expect(agents.compiled.bytes).toBeLessThanOrEqual(agents.compiled.budget);

@@ -4,15 +4,16 @@
  *   GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY (PEM), GITHUB_WEBHOOK_SECRET
  */
 import { fetch } from '@forge/api';
-import { appJwt } from '../adapters/github';
+import { appJwt, parsePrivateKey } from '../adapters/github';
 
 const API = 'https://api.github.com';
+export const LESSON_BRANCH = 'lorehive/lessons';
 const tokenCache = new Map<number, { token: string; exp: number }>();
 
 function env(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing Forge variable ${name}`);
-  return name === 'GITHUB_APP_PRIVATE_KEY' ? v.replace(/\\n/g, '\n') : v;
+  return name === 'GITHUB_APP_PRIVATE_KEY' ? parsePrivateKey(v) : v;
 }
 
 async function installationToken(installationId: number): Promise<string> {
@@ -68,7 +69,7 @@ export class GitHub {
     const meta = await this.get<{ default_branch: string }>(`/repos/${repo}`);
     const base = meta.default_branch;
     const baseRef = await this.get<{ object: { sha: string } }>(`/repos/${repo}/git/ref/heads/${base}`);
-    const branch = 'lorehive/lessons';
+    const branch = LESSON_BRANCH;
     try {
       await this.request('POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: baseRef.object.sha });
     } catch {

@@ -15,6 +15,20 @@ export function verifySignature(secret: string, rawBody: string, header: string 
   return expected.length === got.length && timingSafeEqual(expected, got);
 }
 
+/**
+ * The GitHub App private key from a Forge variable: either the whole .pem
+ * base64-encoded (one line, no leading dashes for the CLI to misread), or the
+ * PEM itself with literal "\n" in place of line breaks.
+ */
+export function parsePrivateKey(value: string): string {
+  const v = value.trim();
+  const pem = v.includes('-----BEGIN') ? v.replace(/\\n/g, '\n') : Buffer.from(v, 'base64').toString('utf8');
+  if (!/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(pem)) {
+    throw new Error('GITHUB_APP_PRIVATE_KEY is not a PEM private key or a base64-encoded one');
+  }
+  return pem.trim();
+}
+
 const b64url = (s: string | Buffer) => Buffer.from(s).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
 
 /** GitHub App JWT (RS256), valid for 9 minutes. */
@@ -68,16 +82,32 @@ export interface FixupContext {
   repoFullName: string;
   pr: { number: number; html_url: string; user: GhUser };
   commit: { sha: string; html_url: string; message: string; author: GhUser; date: string; files: GhFile[] };
+  /**
+   * The account that authenticated the push (webhook `sender`). This is the
+   * actor, because a commit's author comes from its email and can be forged:
+   * trusting it would let one account pass as several people and fake a quorum.
+   */
+  pusher: GhUser;
   /** reviews on this PR, used to detect agent-to-agent findings */
   reviews: Array<{ user: GhUser; path?: string }>;
   languages?: string[];
 }
 
+/**
+ * Only a single-parent commit pushed to an open PR's own head branch can be a
+ * fix-up. A merge lands on the base branch and still lists the agent's PR, and
+ * "update branch" merges have two parents: neither is a correction.
+ */
+export function isFixupCandidate(ref: string, pr: { state: string; head: { ref: string } }, parentCount: number): boolean {
+  return pr.state === 'open' && ref === `refs/heads/${pr.head.ref}` && parentCount === 1;
+}
+
 /** Human commit on an agent PR: a fix-up, or an accepted review finding if another vendor's reviewer flagged that file. */
 export function fixupSignal(ctx: FixupContext): CorrectionSignal | null {
   const prAuthor = ghActor(ctx.pr.user);
-  const committer = ghActor(ctx.commit.author);
-  if (!prAuthor.isAgent || committer.isAgent) return null;
+  const committer = ghActor(ctx.pusher);
+  // A person pushing an agent's commit hasn't corrected anything.
+  if (!prAuthor.isAgent || committer.isAgent || ghActor(ctx.commit.author).isAgent) return null;
   const change = changeFromFiles(ctx.commit.files);
   const scope = { repo: `github:${ctx.repoFullName}`, languages: ctx.languages };
   const reviewer = ctx.reviews.find(

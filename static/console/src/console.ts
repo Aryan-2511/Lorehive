@@ -104,6 +104,14 @@ function renderDelivery(s: State) {
     ${s.budgets.map((b: any) => `<li><div class="row"><b>${esc(b.path)}</b><span class="muted">${b.bytes}/${b.budget} bytes · ${b.included} lessons${b.omitted ? `, ${b.omitted} via lessons_for` : ''}</span></div>
       <div class="meter"><span style="width:${Math.min(100, (b.bytes / b.budget) * 100)}%"></span></div></li>`).join('')}
   </ul><p><button class="secondary" id="preview">Preview AGENTS.md block</button></p><pre id="preview-out" class="hidden"></pre></div>
+  <div class="card"><h2>Connected repos</h2>
+    ${s.webhookUrl ? `<p class="muted">GitHub webhook URL. Keep it private.</p><pre>${esc(s.webhookUrl)}</pre>` : ''}
+    <ul class="plain">
+    ${s.connected.map((r: any, i: number) => `<li><div class="row"><b>${esc(r.repo)}</b>
+      <label><input type="checkbox" id="auto-${i}" ${r.autoPr ? 'checked' : ''}> Open lesson PRs</label>
+      <label>Jira project <input type="text" size="8" id="proj-${i}" value="${esc(r.project ?? '')}"></label>
+      <button class="secondary" data-repo-save="${i}">Save</button></div></li>`).join('') || '<li class="muted">No repos yet. A repo appears here when its first webhook arrives. It gets no PRs until you turn them on.</li>'}
+    </ul><p class="muted">Lessons from a repo with no Jira project are visible to everyone on this site.</p></div>
   <div class="card"><h2>MCP</h2><p>Outside agents (Claude Code, Cursor) call <code>lessons_for</code> and <code>report_outcome</code> through the Lorehive Rovo MCP server. Rovo Studio agents add the same tools.</p></div>`;
 }
 
@@ -113,10 +121,23 @@ function renderDemo(s: State) {
     ${s.steps.map((st: any, i: number) => `<div class="card"><div class="row"><b>${i + 1}. ${esc(st.title)}</b></div><p class="muted">${esc(st.narration)}</p><button class="secondary" data-step="${esc(st.id)}">Play</button> <span id="out-${esc(st.id)}" class="muted"></span></div>`).join('')}`;
 }
 
+function notice(message: string) {
+  const el = $('#notice');
+  el.textContent = message;
+  el.classList.toggle('hidden', !message);
+}
+
 async function busy<T>(btn: HTMLButtonElement | null, fn: () => Promise<T>) {
   if (btn) btn.disabled = true;
+  notice('');
   try {
-    return await fn();
+    const result = await fn();
+    if ((result as any)?.ok === false) notice((result as any).message);
+    return result;
+  } catch (err) {
+    console.error(err);
+    notice('That action failed. Check the app logs for details.');
+    return undefined as T;
   } finally {
     if (btn) btn.disabled = false;
     await refresh();
@@ -138,16 +159,40 @@ document.addEventListener('click', async (ev) => {
   }
   if (btn.id === 'full-demo') await busy(btn, () => invoke('runFullDemo'));
   if (btn.id === 'measure') await busy(btn, () => invoke('measureNow'));
-  if (btn.id === 'reset' && confirm('Delete all Lorehive data on this site?')) await busy(btn, () => invoke('resetDemo'));
+  if (btn.id === 'reset') {
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = 'Click again to delete all demo data';
+      return;
+    }
+    await busy(btn, () => invoke('resetDemo'));
+  }
   if (btn.dataset.step) {
     const id = btn.dataset.step;
     const r: any = await busy(btn, () => invoke('runDemoStep', { stepId: id }));
     const out = document.getElementById(`out-${id}`);
-    if (out) out.textContent = r.results.map((x: any) => (x.promoted ? 'promoted' : x.kind === 'text_claim' ? 'recorded as text, not evidence' : x.missing.join('; ') || 'recorded')).join(' · ');
+    if (out && r) out.textContent = r.results.map((x: any) => (x.promoted ? 'promoted' : x.kind === 'text_claim' ? 'recorded as text, not evidence' : x.missing.join('; ') || 'recorded')).join(' · ');
   }
   if (btn.dataset.veto) {
-    const reason = prompt('Why veto this lesson?');
-    if (reason) await busy(btn, () => invoke('veto', { lessonId: btn.dataset.veto, reason }));
+    const id = btn.dataset.veto;
+    btn.insertAdjacentHTML('afterend', `<div class="row"><input type="text" size="40" placeholder="Why veto this lesson?" data-veto-reason="${esc(id)}"><button class="primary" data-veto-confirm="${esc(id)}">Confirm veto</button></div>`);
+    btn.remove();
+  }
+  if (btn.dataset.vetoConfirm) {
+    const id = btn.dataset.vetoConfirm;
+    const reason = (document.querySelector(`[data-veto-reason="${CSS.escape(id)}"]`) as HTMLInputElement).value.trim();
+    if (!reason) return notice('Enter a reason for the veto.');
+    await busy(btn, () => invoke('veto', { lessonId: id, reason }));
+  }
+  if (btn.dataset.repoSave !== undefined) {
+    const i = btn.dataset.repoSave;
+    await busy(btn, () =>
+      invoke('updateRepo', {
+        repo: state.connected[Number(i)].repo,
+        autoPr: (document.getElementById(`auto-${i}`) as HTMLInputElement).checked,
+        project: (document.getElementById(`proj-${i}`) as HTMLInputElement).value,
+      }),
+    );
   }
   if (btn.id === 'preview') {
     const c: any = await invoke('previewFile', { format: 'agents-md' });

@@ -30,11 +30,24 @@ export interface RepoConfig {
   installationId?: number; // GitHub App installation
   project?: string; // owning Jira project, used for permission filtering
   formats: Array<'agents-md' | 'copilot' | 'claude' | 'cursor'>;
+  /** Opt-in: an admin enables auto-PRs per repo in the console. */
+  autoPr?: boolean;
 }
 
 export async function repoConfigs(): Promise<RepoConfig[]> {
   const raw = await store.getMeta('config:repos');
   return raw ? (JSON.parse(raw) as RepoConfig[]) : [];
+}
+
+/** Remember a repo the first time its webhook fires. It gets no PRs until an admin enables them. */
+export async function registerGithubRepo(fullName: string, installationId: number) {
+  const repos = await repoConfigs();
+  const repo = `github:${fullName}`;
+  const existing = repos.find((r) => r.repo === repo);
+  if (existing?.installationId === installationId) return;
+  if (existing) existing.installationId = installationId;
+  else repos.push({ repo, installationId, formats: ['agents-md', 'copilot'], autoPr: false });
+  await store.setMeta('config:repos', JSON.stringify(repos));
 }
 
 /** Jira projects the user can browse, or undefined if that can't be checked. */

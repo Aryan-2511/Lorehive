@@ -47,6 +47,7 @@ p { margin: 0 0 8px; }
 button.primary, button.secondary { font: inherit; border-radius: 4px; padding: 6px 12px; cursor: pointer; }
 button.primary { background: var(--accent); color: #fff; border: none; }
 button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+input[type=text] { font: inherit; padding: 5px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); }
 button:disabled { opacity: 0.5; cursor: default; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .stat { font-size: 24px; font-weight: 600; }
