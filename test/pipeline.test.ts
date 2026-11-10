@@ -76,6 +76,7 @@ describe('learning pipeline (demo story)', () => {
     const byTopic = Object.fromEntries(results.map((r) => [r.lesson.topic, r.result.verdict]));
     expect(byTopic['avoid:axios']).toBe('effective');
     expect(byTopic['require:retries']).toBe('harmful');
+    expect(byTopic['review:missing-tenant-check']).toBe('effective');
     expect((await store.getLesson(lessonIdFor('require:retries', true)))?.status).toBe('retired');
     expect(verifyChain(store.ledger).ok).toBe(true);
 

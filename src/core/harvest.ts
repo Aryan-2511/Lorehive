@@ -96,6 +96,31 @@ export type CorrectionSignal =
 /** Words in a commit message that mark it as a corrective fix-up. */
 const FIXUP_RE = /\b(fix(es|ed)?|fixup|correct(s|ed)?|revert|wrong|broken|regress|should|instead|missing|forgot)\b/i;
 
+/** Commits that are housekeeping, not corrections (merges, conventional chore/docs/style/test/ci/build/refactor). */
+const NOT_A_CORRECTION_RE = /^(merge (branch|pull request|remote-tracking)|(chore|docs|style|test|tests|ci|build|refactor)(\([^)]*\))?!?:)/i;
+
+/** Files whose changes never teach an agent anything about code. */
+const NON_CODE_RE =
+  /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock|go\.sum)$|\.(md|mdx|snap|txt)$|(^|\/)(docs|__snapshots__|\.github\/workflows)\//i;
+
+const normalise = (line: string) => line.replace(/\s+/g, '').replace(/"/g, "'").replace(/[;,]+$/, '');
+
+/** True when the change only reformats: the same lines once whitespace, quote style and a trailing ; or , are ignored. */
+export function isCosmetic(change: ChangeSummary): boolean {
+  if (!change.removed.length && !change.added.length) return true;
+  const a = change.removed.map(normalise).sort().join('\n');
+  const b = change.added.map(normalise).sort().join('\n');
+  return a === b;
+}
+
+/** Whether a person's commit on an agent PR looks like a correction rather than housekeeping. */
+export function looksLikeCorrection(message: string, change: ChangeSummary): boolean {
+  if (NOT_A_CORRECTION_RE.test(message.trim())) return false;
+  if (change.files.length && change.files.every((f) => NON_CODE_RE.test(f))) return false;
+  if (isCosmetic(change)) return false;
+  return FIXUP_RE.test(message) || change.removed.length > 0;
+}
+
 export function harvest(signal: CorrectionSignal, seeded = false): Evidence | null {
   const base = { source: signal.source, scope: signal.scope, url: signal.url, occurredAt: signal.at, seeded };
   const id = (kind: string) => hashId(`${kind}|${signal.url}|${signal.at}`);
@@ -117,7 +142,7 @@ export function harvest(signal: CorrectionSignal, seeded = false): Evidence | nu
     }
     case 'commit_on_agent_pr': {
       if (!signal.prAuthor.isAgent || signal.committer.isAgent) return null;
-      if (!FIXUP_RE.test(signal.commitMessage) && signal.change.removed.length === 0) return null;
+      if (!looksLikeCorrection(signal.commitMessage, signal.change)) return null;
       return {
         ...base,
         id: id('fixup'),

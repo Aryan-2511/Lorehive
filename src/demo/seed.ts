@@ -180,6 +180,7 @@ export const DEMO_STEPS: DemoStep[] = [
  * lesson was learned and delivered first) vs holdout repos.
  * - axios lesson: recurrence drops in canary repos -> effective
  * - retries lesson: recurrence rises in canary repos -> harmful, retired
+ * - tenant-check and @org/http2 lessons: lower recurrence in canary repos -> effective
  */
 export function seededActivity(topic: string): RepoActivity[] {
   if (topic === 'avoid:axios') {
@@ -199,5 +200,25 @@ export function seededActivity(topic: string): RepoActivity[] {
       { repo: C, agentPrs: 20, recurrences: 3 },
     ];
   }
-  return DEMO_REPOS.map((repo) => ({ repo, agentPrs: 10, recurrences: 1 }));
+  if (topic === 'review:missing-tenant-check') {
+    // canary: checkout-web, ledger
+    return [
+      { repo: C, agentPrs: 28, recurrences: 1 },
+      { repo: LEDGER, agentPrs: 19, recurrences: 1 },
+      { repo: A, agentPrs: 24, recurrences: 4 },
+      { repo: B, agentPrs: 21, recurrences: 3 },
+      { repo: BFF, agentPrs: 12, recurrences: 2 },
+    ];
+  }
+  if (topic === 'avoid:@org/http') {
+    // canary: payments-api, ledger. Newer lesson, so fewer PRs so far.
+    return [
+      { repo: A, agentPrs: 14, recurrences: 1 },
+      { repo: LEDGER, agentPrs: 9, recurrences: 0 },
+      { repo: B, agentPrs: 13, recurrences: 3 },
+      { repo: C, agentPrs: 11, recurrences: 3 },
+    ];
+  }
+  // Anything else: not enough history to judge.
+  return DEMO_REPOS.map((repo) => ({ repo, agentPrs: 2, recurrences: 0 }));
 }

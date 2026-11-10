@@ -56,14 +56,64 @@ export function visibleTo(l: Lesson, r: Requester): boolean {
   return true;
 }
 
-const STOP = new Set('a an the to of in on for and or with is are be this that it as at by from use using'.split(' '));
+// Function words, plus verbs that appear in almost every task or rule ("add",
+// "write", "always") and so carry no signal about which lesson applies.
+const STOP = new Set(
+  (
+    'a an the to of in on for and or with is are be this that it as at by from use using ' +
+    'add adding write make create new update change get when every must never always not do dont ' +
+    'instead before after same into its their our your than then also only just like need needs'
+  ).split(' '),
+);
+
+/**
+ * Small, generic engineering synonyms, applied to the task only. They widen
+ * the keyword stage; the LLM reranker handles meaning beyond this.
+ */
+const SYNONYMS: Record<string, string[]> = {
+  api: ['http'],
+  rest: ['http'],
+  fetch: ['http'],
+  request: ['http'],
+  endpoint: ['http', 'api'],
+  enqueue: ['queue'],
+  job: ['queue'],
+  price: ['money', 'cent'],
+  amount: ['money', 'cent'],
+  charge: ['payment'],
+  card: ['payment'],
+  db: ['database'],
+  postgres: ['sql', 'database'],
+  mysql: ['sql', 'database'],
+  log: ['logger'],
+  secret: ['key', 'token'],
+  translate: ['i18n'],
+};
+
+/** Light stemming so plurals and simple verb forms match ("dates" ~ "date", "calls" ~ "call"). */
+export function stem(t: string): string {
+  if (t.length <= 4 || /[@/._-]/.test(t)) return t;
+  if (t.endsWith('ies')) return t.slice(0, -3) + 'y';
+  if (t.endsWith('ing') && t.length > 6) return t.slice(0, -3);
+  if (t.endsWith('ed') && t.length > 5) return t.slice(0, -2);
+  if (t.endsWith('es') && /(ss|x|ch|sh)es$/.test(t)) return t.slice(0, -2);
+  if (t.endsWith('s') && !t.endsWith('ss')) return t.slice(0, -1);
+  return t;
+}
 
 export function tokens(s: string): string[] {
   return s
     .toLowerCase()
+    .replace(/['`]/g, '')
     .split(/[^a-z0-9@/._-]+/)
     .flatMap((t) => [t, ...t.split(/[/._-]/)])
-    .filter((t) => t.length > 1 && !STOP.has(t));
+    .filter((t) => t.length > 1 && !STOP.has(t))
+    .map(stem);
+}
+
+function queryTokens(task: string): string[] {
+  const base = tokens(task);
+  return [...base, ...base.flatMap((t) => SYNONYMS[t] ?? [])];
 }
 
 export function keywordScore(task: string, lessons: Lesson[]): Map<string, number> {
@@ -72,7 +122,7 @@ export function keywordScore(task: string, lessons: Lesson[]): Map<string, numbe
   const df = new Map<string, number>();
   for (const d of docs) for (const t of new Set(d.toks)) df.set(t, (df.get(t) ?? 0) + 1);
   const avg = docs.reduce((s, d) => s + d.toks.length, 0) / N || 1;
-  const q = new Set(tokens(task));
+  const q = new Set(queryTokens(task));
   const k1 = 1.2;
   const b = 0.75;
   const scores = new Map<string, number>();
@@ -106,7 +156,11 @@ export async function lessonsFor(
   const inScope = all.filter((l) => l.status === 'promoted' && appliesTo(l, scope));
   const visible = inScope.filter((l) => visibleTo(l, requester));
   const scores = keywordScore(task, visible);
-  let ranked = [...visible].sort((a, b) => (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0) || b.evidenceIds.length - a.evidenceIds.length);
+  // Only lessons that share a term with the task: returning unrelated lessons
+  // just adds noise to an agent's context.
+  let ranked = visible
+    .filter((l) => (scores.get(l.id) ?? 0) > 0)
+    .sort((a, b) => (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0) || b.evidenceIds.length - a.evidenceIds.length);
   if (opts.reranker && ranked.length > 1) ranked = await opts.reranker.rerank(task, ranked.slice(0, limit * 3));
   return {
     lessons: ranked.slice(0, limit).map(({ id, title, rule, citations, seeded }) => ({ id, title, rule, citations, seeded })),
